@@ -134,7 +134,7 @@ public class GSWagonTest
     gsWagon.openConnectionInternal();
     final BlobId baseId = gsWagon.getBaseId();
     assertEquals("bucket", baseId.getBucket());
-    assertEquals("/key", baseId.getName());
+    assertEquals("key", baseId.getName());
     assertNull(baseId.getGeneration());
   }
 
@@ -271,6 +271,7 @@ public class GSWagonTest
     final long size = 100;
     final Blob blob = createStrictMock(Blob.class);
     final ReadChannel readChannel = createStrictMock(ReadChannel.class);
+    expect(blob.getName()).andReturn(connectionPOJO.baseId.getName() + "/foo").once();
     expect(blob.getSize()).andReturn(size).once();
     expect(blob.reader()).andReturn(readChannel).once();
     expect(readChannel.read(anyObject()))
@@ -282,6 +283,7 @@ public class GSWagonTest
     final File outFile = temporaryFolder.newFile();
     outFile.delete();
     assertFalse(outFile.exists());
+    gsWagon.swapAndCloseConnection(connectionPOJO);
     gsWagon.get(blob, outFile);
     assertTrue(outFile.exists());
     verify(readChannel, blob);
@@ -294,6 +296,7 @@ public class GSWagonTest
     final long size = 100;
     final Blob blob = createStrictMock(Blob.class);
     final ReadChannel readChannel = createStrictMock(ReadChannel.class);
+    expect(blob.getName()).andReturn(connectionPOJO.baseId.getName() + "/foo").once();
     expect(blob.getSize()).andReturn(size).once();
     expect(blob.reader()).andReturn(readChannel).once();
     expect(readChannel.read(anyObject()))
@@ -304,6 +307,7 @@ public class GSWagonTest
     final File outFile = temporaryFolder.newFile();
     outFile.delete();
     assertFalse(outFile.exists());
+    gsWagon.swapAndCloseConnection(connectionPOJO);
     gsWagon.get(blob, outFile);
   }
 
@@ -314,6 +318,7 @@ public class GSWagonTest
     final long size = 100;
     final Blob blob = createStrictMock(Blob.class);
     final ReadChannel readChannel = createStrictMock(ReadChannel.class);
+    expect(blob.getName()).andReturn(connectionPOJO.baseId.getName() + "/foo").once();
     expect(blob.getSize()).andReturn(size).once();
     expect(blob.reader()).andReturn(readChannel).once();
     expect(readChannel.read(anyObject()))
@@ -324,6 +329,7 @@ public class GSWagonTest
     final File outFile = temporaryFolder.newFile();
     outFile.delete();
     assertFalse(outFile.exists());
+    gsWagon.swapAndCloseConnection(connectionPOJO);
     gsWagon.get(blob, outFile);
   }
 
@@ -333,6 +339,7 @@ public class GSWagonTest
     final long size = 100;
     final Blob blob = createStrictMock(Blob.class);
     final ReadChannel readChannel = createStrictMock(ReadChannel.class);
+    expect(blob.getName()).andReturn(connectionPOJO.baseId.getName() + "/foo").once();
     expect(blob.getSize()).andReturn(size).once();
     expect(blob.reader()).andReturn(readChannel).once();
     expect(readChannel.read(anyObject()))
@@ -349,6 +356,7 @@ public class GSWagonTest
     }
     assertTrue(outFile.exists());
     assertEquals(size * 10, outFile.length());
+    gsWagon.swapAndCloseConnection(connectionPOJO);
     gsWagon.get(blob, outFile);
     assertTrue(outFile.exists());
     verify(readChannel, blob);

@@ -41,17 +41,21 @@ import org.apache.maven.wagon.ResourceDoesNotExistException;
 import org.apache.maven.wagon.TransferFailedException;
 import org.apache.maven.wagon.authentication.AuthenticationException;
 import org.apache.maven.wagon.authorization.AuthorizationException;
+import org.apache.maven.wagon.events.TransferEvent;
 import org.apache.maven.wagon.repository.Repository;
+import org.apache.maven.wagon.resource.Resource;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class GSWagon extends AbstractWagon
@@ -72,7 +76,7 @@ public class GSWagon extends AbstractWagon
     final HttpClient client = buildClient();
     swapAndCloseConnection(new ConnectionPOJO(
         buildStorage(client),
-        BlobId.of(repository.getHost(), repository.getBasedir()),
+        BlobId.of(repository.getHost(), repository.getBasedir().substring(1)),
         client
     ));
   }
@@ -141,14 +145,52 @@ public class GSWagon extends AbstractWagon
   public void put(File file, String s)
       throws TransferFailedException, ResourceDoesNotExistException, AuthorizationException
   {
-    try (InputStream fis = new FileInputStream(file)) {
+    final Resource resource = new Resource(s);
+    final TransferEvent transferEvent = new TransferEvent(
+        this,
+        resource,
+        TransferEvent.TRANSFER_PROGRESS,
+        TransferEvent.REQUEST_PUT
+    );
+    try (InputStream fis = new FilterInputStream(new FileInputStream(file))
+    {
+      public int read(byte b[]) throws IOException
+      {
+        final int upperRead = super.read(b, 0, b.length);
+        if (upperRead != -1) {
+          fireTransferProgress(transferEvent, b, upperRead);
+        }
+        return upperRead;
+      }
+
+      public int read() throws IOException
+      {
+        final int upperRead = super.read();
+        if (upperRead != -1) {
+          fireTransferProgress(transferEvent, new byte[]{(byte) upperRead}, upperRead);
+        }
+        return upperRead;
+      }
+
+      public int read(byte b[], int off, int len) throws IOException
+      {
+        final int upperRead = super.read(b, off, len);
+        if (upperRead != -1) {
+          fireTransferProgress(transferEvent, Arrays.copyOfRange(b, off, off + upperRead), upperRead);
+        }
+        return upperRead;
+      }
+    }) {
+      firePutInitiated(resource, file);
       final BlobInfo blobInfo = BlobInfo
           .newBuilder(toBlobID(s))
           .build();
+      firePutStarted(resource, file);
       final Blob blob = getStorage().create(blobInfo, fis);
       if (LOG.isTraceEnabled()) {
         LOG.trace(String.format("Created [%s] from [%s]", blob, file));
       }
+      firePutCompleted(resource, file);
     }
     catch (StorageException se) {
       throw translate(s, se);
@@ -165,29 +207,51 @@ public class GSWagon extends AbstractWagon
   @VisibleForTesting
   void get(Blob blob, File file) throws IOException, TransferFailedException
   {
+    final Resource resource = new Resource(blob.getName().substring(getBaseId().getName().length()));
     final long size = blob.getSize();
     try (final RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
       raf.setLength(size);
     }
+    fireGetInitiated(resource, file);
     try (
         final ReadChannel readChannel = blob.reader();
         final FileChannel fileChannel = FileChannel.open(
             file.toPath(),
-            StandardOpenOption.TRUNCATE_EXISTING,
-            StandardOpenOption.CREATE,
             StandardOpenOption.WRITE,
             StandardOpenOption.READ
         );
     ) {
+      fireGetStarted(resource, file);
       final ByteBuffer byteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size);
       long readSize = 0;
+      long priorStart = 0;
       do {
         final int mySize = readChannel.read(byteBuffer);
         if (mySize == -1) {
           throw new TransferFailedException(String.format("Premature EOS after [%s] of [%s] bytes", readSize, size));
         }
         readSize += mySize;
+        if (priorStart != byteBuffer.position()) {
+          final ByteBuffer rob = byteBuffer.duplicate();
+          rob.position((int) priorStart).limit(byteBuffer.position());
+          final byte[] bytes = ByteBuffer
+              .allocate((int) (byteBuffer.position() - priorStart))
+              .put(rob)
+              .array();
+          final TransferEvent event = new TransferEvent(
+              this,
+              resource,
+              TransferEvent.TRANSFER_PROGRESS,
+              TransferEvent.REQUEST_GET
+          );
+          fireTransferProgress(event, bytes, bytes.length);
+          priorStart = byteBuffer.position();
+        }
       } while (readSize < size);
+      fireGetCompleted(resource, file);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(String.format("Fetched [%s] bytes for [%s]", readSize, blob));
+      }
     }
   }
 
