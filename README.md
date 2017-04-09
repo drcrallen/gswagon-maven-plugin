@@ -1,4 +1,7 @@
 # gswagon-maven-plugin
+
+[![Build Status](https://travis-ci.org/drcrallen/gswagon-maven-plugin.svg?branch=master)](https://travis-ci.org/drcrallen/gswagon-maven-plugin)
+
 The `gswagon-maven-plugin` provides [maven wagon](http://maven.apache.org/wagon/) support for Google Cloud Storage.
 
 It is intended for use in scenarios where the accessor has equal rights to all items in the repository. For example, read-only everything or read-write everything.
