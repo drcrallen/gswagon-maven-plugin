@@ -22,7 +22,7 @@
 
   <groupId>com.allennet.maven.plugins</groupId>
   <artifactId>gswagon-maven-plugin</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <version>0.0.1-SNAPSHOT</version>
 
   <properties>
     <google-cloud-storage-version>0.12.0-beta</google-cloud-storage-version>
