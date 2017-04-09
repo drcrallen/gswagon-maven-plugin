@@ -69,10 +69,11 @@ public class GSWagon extends AbstractWagon
     if (!"gs".equals(repository.getProtocol())) {
       throw new IllegalArgumentException(String.format("Unsupported protocol [%s]", repository.getProtocol()));
     }
+    final HttpClient client = buildClient();
     swapAndCloseConnection(new ConnectionPOJO(
-        buildStorage(),
+        buildStorage(client),
         BlobId.of(repository.getHost(), repository.getBasedir()),
-        ApacheHttpTransport.newDefaultHttpClient()
+        client
     ));
   }
 
@@ -95,7 +96,11 @@ public class GSWagon extends AbstractWagon
       LOG.trace(String.format("Fetching [%s] to [%s]", s, file));
     }
     try {
-      get(getStorage().get(toBlobID(s)), file);
+      final Blob blob = getStorage().get(toBlobID(s));
+      if (blob == null) {
+        throw new ResourceDoesNotExistException(String.format("Not found [%s]", s));
+      }
+      get(blob, file);
     }
     catch (StorageException se) {
       throw translate(s, se);
@@ -221,20 +226,20 @@ public class GSWagon extends AbstractWagon
   }
 
   @VisibleForTesting
-  TransportOptions buildTransportOptions()
+  TransportOptions buildTransportOptions(final HttpClient client)
   {
     return HttpTransportOptions
         .newBuilder()
         .setReadTimeout(getReadTimeout())
         .setConnectTimeout(getTimeout())
-        .setHttpTransportFactory(getTransportFactory())
+        .setHttpTransportFactory(getTransportFactory(client))
         .build();
   }
 
   @VisibleForTesting
-  HttpTransportFactory getTransportFactory()
+  HttpTransportFactory getTransportFactory(final HttpClient httpClient)
   {
-    return () -> new ApacheHttpTransport(getClient());
+    return () -> new ApacheHttpTransport(httpClient);
   }
 
   @VisibleForTesting
@@ -259,18 +264,18 @@ public class GSWagon extends AbstractWagon
   }
 
   @VisibleForTesting
-  HttpClient getClient()
+  HttpClient buildClient()
   {
-    return connectionPOJO.get().client;
+    return ApacheHttpTransport.newDefaultHttpClient();
   }
 
   @VisibleForTesting
-  Storage buildStorage()
+  Storage buildStorage(HttpClient client)
   {
     return StorageOptions
         .newBuilder()
         .setRetrySettings(buildRetrySettings())
-        .setTransportOptions(buildTransportOptions())
+        .setTransportOptions(buildTransportOptions(client))
         .setClock(NanoClock.getDefaultClock())
         .setProjectId(getProjectId())
         .build()

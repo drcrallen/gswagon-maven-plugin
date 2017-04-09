@@ -32,6 +32,8 @@ import org.apache.maven.wagon.repository.Repository;
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.hamcrest.CustomMatcher;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -65,10 +67,11 @@ public class GSWagonTest
   public ExpectedException expectedException = ExpectedException.none();
 
   private static final BlobId BLOB_ID = BlobId.of("bucket", "/key");
+  private final String repoId = "id";
   private final ConnectionPOJO connectionPOJO = createMockConnectionPOJO();
   private final GSWagon gsWagon = new GSWagon()
   {
-    HttpClient getClient()
+    HttpClient buildClient()
     {
       return connectionPOJO.client;
     }
@@ -80,15 +83,24 @@ public class GSWagonTest
 
     public Repository getRepository()
     {
-      return new Repository("id", "gs://bucket/key");
+      return new Repository(repoId, "gs://bucket/key");
     }
   };
+  private String priorId = null;
+
+  @Before
+  public void setUp()
+  {
+    final String propertyString = gsWagon.getPropertyString(repoId);
+    priorId = System.getProperty(propertyString);
+    System.setProperty(propertyString, "project_id");
+  }
 
   @Test
   public void testBuildTransportOptions()
   {
     gsWagon.swapAndCloseConnection(connectionPOJO);
-    final HttpTransportOptions transportOptions = (HttpTransportOptions) gsWagon.buildTransportOptions();
+    final HttpTransportOptions transportOptions = (HttpTransportOptions) gsWagon.buildTransportOptions(connectionPOJO.client);
     assertEquals(ApacheHttpTransport.class, transportOptions.getHttpTransportFactory().create().getClass());
     assertEquals(gsWagon.getTimeout(), transportOptions.getConnectTimeout());
     assertEquals(gsWagon.getReadTimeout(), transportOptions.getReadTimeout());
@@ -150,9 +162,16 @@ public class GSWagonTest
   @Test
   public void testSwapAndCloseConnection()
   {
-    final GSWagon gsWagon = new GSWagon();
+    final GSWagon gsWagon = new GSWagon()
+    {
+      @Override
+      HttpClient buildClient()
+      {
+        return connectionPOJO.client;
+      }
+    };
     gsWagon.swapAndCloseConnection(connectionPOJO);
-    assertEquals(connectionPOJO.client, gsWagon.getClient());
+    assertEquals(connectionPOJO.client, gsWagon.buildClient());
     assertEquals(connectionPOJO.baseId, gsWagon.getBaseId());
     assertEquals(connectionPOJO.storage, gsWagon.getStorage());
   }
@@ -199,7 +218,7 @@ public class GSWagonTest
     ));
 
     final Capture<BlobId> blobIdCapture = Capture.newInstance();
-    expect(storage.get(capture(blobIdCapture))).andReturn(null).once();
+    expect(storage.get(capture(blobIdCapture))).andReturn(createStrictMock(Blob.class)).once();
     replay(storage);
     final File outFile = temporaryFolder.newFile();
     gsWagon.get("artifact", outFile);
@@ -211,6 +230,39 @@ public class GSWagonTest
         blobIdCapture.getValue().getName()
     );
     assertNull(blobIdCapture.getValue().getGeneration());
+  }
+
+  @Test
+  public void testGetItemNotFound() throws Exception
+  {
+    expectedException.expect(new CustomMatcher<Object>(ResourceDoesNotExistException.class.getName())
+    {
+      @Override
+      public boolean matches(Object item)
+      {
+        return item instanceof ResourceDoesNotExistException;
+      }
+    });
+    final HttpClient client = strictMock(HttpClient.class);
+    final Storage storage = createStrictMock(Storage.class);
+    final GSWagon gsWagon = new GSWagon()
+    {
+      @Override
+      void get(Blob blob, File file) throws IOException, TransferFailedException
+      {
+        // noop
+      }
+    };
+
+    gsWagon.swapAndCloseConnection(new ConnectionPOJO(
+        storage,
+        BLOB_ID,
+        client
+    ));
+    expect(storage.get(EasyMock.<BlobId>anyObject())).andReturn(null).once();
+    replay(storage);
+    final File outFile = temporaryFolder.newFile();
+    gsWagon.get("artifact", outFile);
   }
 
   @Test
@@ -362,7 +414,7 @@ public class GSWagonTest
       });
       System.clearProperty(property);
       gsWagon.swapAndCloseConnection(connectionPOJO);
-      assertNotNull(gsWagon.buildStorage());
+      assertNotNull(gsWagon.buildStorage(connectionPOJO.client));
     }
     finally {
       if (pre != null) {
@@ -380,15 +432,15 @@ public class GSWagonTest
     {
       public Repository getRepository()
       {
-        return new Repository("id", "url");
+        return new Repository(repoId, "url");
       }
     };
     gsWagon.swapAndCloseConnection(connectionPOJO);
-    final String property = gsWagon.getPropertyString(gsWagon.getRepository().getId());
+    final String property = gsWagon.getPropertyString(repoId);
     final String pre = System.getProperty(property);
     try {
       System.setProperty(property, "fakeproject");
-      assertNotNull(gsWagon.buildStorage());
+      assertNotNull(gsWagon.buildStorage(connectionPOJO.client));
     }
     finally {
       if (pre != null) {
@@ -402,7 +454,7 @@ public class GSWagonTest
   @Test
   public void testBuildProperty()
   {
-    assertEquals(PROJECT_ID_PROPERTY_PREFIX + "id", gsWagon.getPropertyString("id"));
+    assertEquals(PROJECT_ID_PROPERTY_PREFIX + repoId, gsWagon.getPropertyString(repoId));
   }
 
   @Test
@@ -493,9 +545,15 @@ public class GSWagonTest
     throw GSWagon.translate("foo", se);
   }
 
-  private MockHttpClient getMockClient()
+  @After
+  public void tearDown()
   {
-    return (MockHttpClient) connectionPOJO.client;
+    if (priorId != null) {
+      System.setProperty(gsWagon.getPropertyString(repoId), priorId);
+    } else {
+      System.clearProperty(gsWagon.getPropertyString(repoId));
+    }
+    priorId = null;
   }
 
   static ConnectionPOJO createMockConnectionPOJO()
