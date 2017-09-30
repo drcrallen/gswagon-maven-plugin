@@ -51,4 +51,4 @@ The respository format is expected to be in the following format:
 ```
 gs://bucket/prefix
 ```
-Where `bucket` is the bucket containing the jars, and `prefix` is the
+Where `bucket` is the bucket containing the jars, and `prefix` is a special prefix that could allow multiple effective repositories in the same bucket.
